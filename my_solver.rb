@@ -5,14 +5,21 @@ require "./solver_lib"
 # STDOUT.sync = true
 
 class Solver
-    def initialize(data_filename)
+    def initialize(data_filename, verbose=false)
+        @verbose = verbose
         # スペースの評価値を読み込み
         # [space_size, num_valid, num_total]
         @prob = Marshal.load(File.read(data_filename))
+        @prob.default = nil
+        @prob[:p3] = @prob[:p3] || 1.0
+        @prob[:p2] = @prob[:p2] || 1.0
+        @prob[:p1] = @prob[:p1] || 1.0
+        @prob[:p0] = @prob[:p0] || 0.1
+        @prob.default = 0
     end
 
     def log(msg)
-        #puts msg
+        puts msg if @verbose
     end
 
     def init
@@ -79,7 +86,7 @@ class Solver
             p3 = get_prob(cnt, nums.size, numbers.size)
             if p3 > 0
                 log "(#{thid})=== P3(#{lv},#{rv},#{p3}) ====  #{map.join('|')} #{nums}"
-                sc += fill_recursive(map, spaces, numbers, prob, p3, nums, this_space, true, true, depth)
+                sc += @prob[:p3] * fill_recursive(map, spaces, numbers, prob, p3, nums, this_space, true, true, depth)
             end
         end
          #       .. <= rv に収まる確率？ p2: 右側とつながる場合を評価する
@@ -88,7 +95,7 @@ class Solver
             p2 = [get_prob(cnt, nums.size, numbers.size) - p3, 0].max
             if p2 > 0
                 log "(#{thid})=== P2(#{lv},#{rv},#{p2}) ==== #{map.join('|')} #{nums}"
-                sc += fill_recursive(map, spaces, numbers, prob, p2, nums, this_space, false, true, depth)
+                sc += @prob[:p2] * fill_recursive(map, spaces, numbers, prob, p2, nums, this_space, false, true, depth)
             end
         end
         # lv <= ..       に収まる確率？ p1: 左側とつながる場合を評価する
@@ -97,7 +104,7 @@ class Solver
             p1 = [get_prob(cnt, nums.size, numbers.size) - p3, 0].max
             if p1 > 0
                 log "(#{thid})=== P1(#{lv},#{rv},#{p1}) ====  #{map.join('|')} #{nums}"
-                sc += fill_recursive(map, spaces, numbers, prob, p1, nums, this_space, true, false, depth)
+                sc += @prob[:p1] * fill_recursive(map, spaces, numbers, prob, p1, nums, this_space, true, false, depth)
             end
         end
         # 収まらない確率              ? p0
@@ -105,7 +112,7 @@ class Solver
         p0 = [get_prob(cnt, nums.size, numbers.size) - p1 - p2 - p3, 0].max # ? よくわかんな。。
         if p0 > 0
             log "(#{thid})=== P0(#{lv},#{rv},#{p0}) ====  #{map.join('|')} nums=#{nums.size}#{nums.inspect} numbers=#{numbers.size}#{numbers.inspect}"
-            sc += fill_recursive(map, spaces, numbers, prob, p0, nums, this_space, false, false, depth)
+            sc += @prob[:p0] * fill_recursive(map, spaces, numbers, prob, p0, nums, this_space, false, false, depth)
         end
         sc
     end
@@ -180,7 +187,7 @@ end
 
 class Streams
   def initialize(data_filename, num, seed)
-    @solver = Solver.new(data_filename)
+    @solver = Solver.new(data_filename, $DEBUG)
     @num = num
     @seed = seed
   end
@@ -214,10 +221,13 @@ end
 
 class Trainer
     require "securerandom"
-    def initialize(data_dir, num_eval, seed)
+    require "./thread-pool"
+
+    def initialize(data_dir, num_eval, seed, concurrent=1)
         @data_dir = data_dir
         @num_eval = num_eval
         @seed = seed
+        @concurrent = concurrent
         @num_next = 10 # 次世代に残れる数
         @num_child_per_parents = 3 # １つの親が作る子供の数
         @mutation_rate = 0.01
@@ -242,7 +252,7 @@ class Trainer
             train_loop(@seed + seed_offset)
             i += 1
             if i % 10 == 0
-                seed_offset += 50
+                seed_offset += @num_eval/2
                 @result_cache = {}
             end
         end
@@ -256,15 +266,16 @@ class Trainer
         # evaluate each child
         child_score = {}
         log "== #{new_children.size} children will be tested"
+        ##################################
         new_children.each_with_index do |child, n|
             cache_key = ["#{@data_dir}/#{child}", @num_eval, seed]
             if @result_cache[cache_key] == nil
-                ave_score = Streams.new("#{@data_dir}/#{child}", @num_eval, seed).eval
-                @result_cache[cache_key] = ave_score
+                @result_cache[cache_key] = Streams.new("#{@data_dir}/#{child}", @num_eval, seed).eval
             end
             child_score[child] = @result_cache[cache_key]
             log "No.#{n}: #{child} Score: #{child_score[child]}"
         end
+        ###################################
         # kill bad children
         survives = child_score.sort_by{|k,v| -v}[0...@num_next].map{|x| x[0]}
         log "================ BEST #{@num_next} ===================="
@@ -335,5 +346,5 @@ if first_arg.to_i == 0
     puts Streams.new(first_arg, ARGV[1].to_i, (ARGV[2] || 0).to_i).eval
 else
     $DEBUG = false
-    Trainer.new("data", first_arg.to_i, (ARGV[1] || 0).to_i).train
+    Trainer.new("data", first_arg.to_i, (ARGV[1] || 0).to_i, (ARGV[2] || 1).to_i).train
 end
