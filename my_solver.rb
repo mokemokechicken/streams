@@ -235,11 +235,16 @@ class Trainer
     end
 
     def train
-        i = 0
+        seed_offset = i = 0
+        @result_cache = {}
         while true
             log "=== start training loop #{i}"
-            train_loop((@seed + (i / 10)*50))
+            train_loop(@seed + seed_offset)
             i += 1
+            if i % 10 == 0
+                seed_offset += 50
+                @result_cache = {}
+            end
         end
     end
 
@@ -252,8 +257,12 @@ class Trainer
         child_score = {}
         log "== #{new_children.size} children will be tested"
         new_children.each_with_index do |child, n|
-            ave_score = Streams.new("#{@data_dir}/#{child}", @num_eval, seed).eval
-            child_score[child] = ave_score
+            cache_key = ["#{@data_dir}/#{child}", @num_eval, seed]
+            if @result_cache[cache_key] == nil
+                ave_score = Streams.new("#{@data_dir}/#{child}", @num_eval, seed).eval
+                @result_cache[cache_key] = ave_score
+            end
+            child_score[child] = @result_cache[cache_key]
             log "No.#{n}: #{child} Score: #{child_score[child]}"
         end
         # kill bad children
@@ -270,9 +279,9 @@ class Trainer
     def generate_new_children(children)
         log "genearate new children"
         raise "No child found" if children.size == 0
-        @num_gen_limit = @num_child_per_parents * @num_next
+        @num_gen_limit = (@num_child_per_parents+1) * @num_next
         @num_gen_children = children.size
-        self.mutant(@num_child_per_parents/2, children)
+        mutant(@num_child_per_parents/2, children)
         ((@num_gen_limit - @num_gen_children)/2).times do |i|
             kousa(children)
         end
