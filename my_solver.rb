@@ -14,7 +14,7 @@ class Solver
         @prob[:p3] = @prob[:p3] || 1.0
         @prob[:p2] = @prob[:p2] || 1.0
         @prob[:p1] = @prob[:p1] || 1.0
-        @prob[:p0] = @prob[:p0] || 0.1
+        @prob[:p0] = @prob[:p0] || 1.0
         @prob.default = 0
     end
 
@@ -57,9 +57,12 @@ class Solver
         spaces = fetch_spaces(map) 
         # log spaces.inspect
 
-        sc = fill_spaces(map, spaces, numbers, 1)
-        log "CALC_SCORE: #{sc} -> #{map.join('|')}"
-        sc
+        sc = fill_spaces(map, spaces, numbers, 1) # [[score,prob],..]
+        log "SC=#{sc.inspect}"
+        sub_prob = [sc.inject(0){|t,x| t+x[1]}, 1].max
+        final_sc = sc.inject(0){|t,x| t+x[0]*x[1]} / sub_prob
+        log "CALC_SCORE: #{final_sc} -> #{map.join('|')}"
+        final_sc
     end
 
     def fill_spaces(map, spaces, numbers, prob, depth=1)
@@ -75,44 +78,44 @@ class Solver
             end
             sc = score(map)
             log "Score: #{sc*prob}, #{sc}, #{prob}"
-            return sc * prob
+            return [[sc, prob]]
         end
-        sc = 0
+        sc = []
         lidx, lv, ridx, rv, cnt = this_space = spaces.pop
         p3 = p2 = p1 = 0
         # lv <= .. <= rv に収まる確率？ p3: 左右とつながる場合を評価する
         if lv && rv
             nums = select_nums(lv, rv, numbers)
-            p3 = get_prob(cnt, nums.size, numbers.size)
+            p3 = get_prob(cnt, nums.size, numbers.size) * @prob[:p3]
             if p3 > 0
                 log "(#{thid})=== P3(#{lv},#{rv},#{p3}) ====  #{map.join('|')} #{nums}"
-                sc += @prob[:p3] * fill_recursive(map, spaces, numbers, prob, p3, nums, this_space, true, true, depth)
+                sc += fill_recursive(map, spaces, numbers, prob, p3, nums, this_space, true, true, depth)
             end
         end
          #       .. <= rv に収まる確率？ p2: 右側とつながる場合を評価する
         if rv # 右側に数字が存在している
             nums = select_nums(nil, rv, numbers)
-            p2 = [get_prob(cnt, nums.size, numbers.size) - p3, 0].max
+            p2 = [get_prob(cnt, nums.size, numbers.size) - p3, 0].max * @prob[:p2]
             if p2 > 0
                 log "(#{thid})=== P2(#{lv},#{rv},#{p2}) ==== #{map.join('|')} #{nums}"
-                sc += @prob[:p2] * fill_recursive(map, spaces, numbers, prob, p2, nums, this_space, false, true, depth)
+                sc += fill_recursive(map, spaces, numbers, prob, p2, nums, this_space, false, true, depth)
             end
         end
         # lv <= ..       に収まる確率？ p1: 左側とつながる場合を評価する
         if lv
             nums = select_nums(lv, nil, numbers)
-            p1 = [get_prob(cnt, nums.size, numbers.size) - p3, 0].max
+            p1 = [get_prob(cnt, nums.size, numbers.size) - p3, 0].max * @prob[:p1]
             if p1 > 0
                 log "(#{thid})=== P1(#{lv},#{rv},#{p1}) ====  #{map.join('|')} #{nums}"
-                sc += @prob[:p1] * fill_recursive(map, spaces, numbers, prob, p1, nums, this_space, true, false, depth)
+                sc += fill_recursive(map, spaces, numbers, prob, p1, nums, this_space, true, false, depth)
             end
         end
         # 収まらない確率              ? p0
         nums = select_nums(nil, nil, numbers)
-        p0 = [get_prob(cnt, nums.size, numbers.size) - p1 - p2 - p3, 0].max # ? よくわかんな。。
+        p0 = [get_prob(cnt, nums.size, numbers.size) - p1 - p2 - p3, 0].max * @prob[:p0] # ? よくわかんな。。
         if p0 > 0
             log "(#{thid})=== P0(#{lv},#{rv},#{p0}) ====  #{map.join('|')} nums=#{nums.size}#{nums.inspect} numbers=#{numbers.size}#{numbers.inspect}"
-            sc += @prob[:p0] * fill_recursive(map, spaces, numbers, prob, p0, nums, this_space, false, false, depth)
+            sc += fill_recursive(map, spaces, numbers, prob, p0, nums, this_space, false, false, depth)
         end
         sc
     end
@@ -126,14 +129,14 @@ class Solver
         ridx = (ridx||20)-1
         if not conn_left and lv
             invaid_nums = select_nums(nil, lv-1, (fnumbers - use_nums)).delete_if{|x| x == 0}
-            return 0 if invaid_nums.size == 0
+            return [[0, 0]] if invaid_nums.size == 0
             x = fmap[lidx] = invaid_nums.shuffle[0]
             fnumbers.delete_at(fnumbers.find_index(x))
             lidx += 1
         end
         if not conn_right and rv
             invaid_nums = select_nums(rv+1, nil, (fnumbers - use_nums)).delete_if{|x| x == 0}
-            return 0 if invaid_nums.size == 0
+            return [[0, 0]] if invaid_nums.size == 0
             if not fmap[ridx] # 既にlidxによって埋まっている場合がある
                 x = fmap[ridx] = invaid_nums.shuffle[0]
                 fnumbers.delete_at(fnumbers.find_index(x))
@@ -229,7 +232,7 @@ class Trainer
         @seed = seed
         @concurrent = concurrent
         @num_next = 10 # 次世代に残れる数
-        @num_child_per_parents = 3 # １つの親が作る子供の数
+        @num_child_per_parents = 2 # １つの親が作る子供の数
         @mutation_rate = 0.01
         @mutation_val = 1.0
         @kousa_rate = 0.01
@@ -251,7 +254,8 @@ class Trainer
             log "=== start training loop #{i}"
             train_loop(@seed + seed_offset)
             i += 1
-            if i % 10 == 0
+            if i % 3 == 0
+                log "SEED Change!"
                 seed_offset += @num_eval/2
                 @result_cache = {}
             end

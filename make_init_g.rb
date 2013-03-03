@@ -17,9 +17,10 @@ def main()
                 num_invalid = num_total - num_valid
                 x = 0
                 space_size.upto(total_try) do |s|
-                    pp = (0.99) ** ((space_size-1)*2)
-                    x += pp*combi(num_valid, s)*combi(num_invalid, total_try-s)/combi(num_total, total_try).to_f
+                    pp = combi(num_valid, s)*combi(num_invalid, total_try-s)/combi(num_total, total_try).to_f
+                    x += pp
                 end
+                x *= [20.0/(1.6**space_size), 1].min
                 x = [x, 1.0].min
                 hash[[space_size, num_valid, num_total]] = x
                 p "#{[space_size, num_valid, num_total]} => #{x}}"
