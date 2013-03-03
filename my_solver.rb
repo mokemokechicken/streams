@@ -47,7 +47,7 @@ class Solver
             end
         end
         @map[ret_index] = num
-        log "FIX POS[#{ret_index}] = #{num}: #{@map.join('|')}"
+        #log "FIX POS[#{ret_index}] = #{num}: #{@map.join('|')}"
         @pos.delete(ret_index)
         ret_index
     end
@@ -58,17 +58,17 @@ class Solver
         # log spaces.inspect
 
         sc = fill_spaces(map, spaces, numbers, 1) # [[score,prob],..]
-        log "SC=#{sc.inspect}"
+        #log "SC=#{sc.inspect}"
         sub_prob = [sc.inject(0){|t,x| t+x[1]}, 1].max
         final_sc = sc.inject(0){|t,x| t+x[0]*x[1]} / sub_prob
-        log "CALC_SCORE: #{final_sc} -> #{map.join('|')}"
+        #log "CALC_SCORE: #{final_sc} -> #{map.join('|')}"
         final_sc
     end
 
     def fill_spaces(map, spaces, numbers, prob, depth=1)
         spaces = spaces.dup
         thid = (rand * 1000000).to_i
-        log "(#{thid})fill_spaces: #{map.join('|')} #{spaces.inspect} numbers=#{numbers.size}#{numbers.inspect}"
+        #log "[#{thid}-#{depth}-#{prob}] fill_spaces: #{map.join('|')} #{spaces.inspect} numbers=#{numbers.size}#{numbers.inspect}"
         if spaces.size == 0 || depth > 5
             if depth > 5 # 打ち切り
                 log "Cut Search beacause over depth"
@@ -83,38 +83,41 @@ class Solver
         sc = []
         lidx, lv, ridx, rv, cnt = this_space = spaces.pop
         p3 = p2 = p1 = 0
-        # lv <= .. <= rv に収まる確率？ p3: 左右とつながる場合を評価する
+        # p3: 左右とつながる場合を評価する
         if lv && rv
             nums = select_nums(lv, rv, numbers)
             p3 = get_prob(cnt, nums.size, numbers.size) * @prob[:p3]
             if p3 > 0
-                log "(#{thid})=== P3(#{lv},#{rv},#{p3}) ====  #{map.join('|')} #{nums}"
+                #log "(#{thid})=== P3(#{lv},#{rv},#{p3}) ====  #{map.join('|')} #{nums}"
                 sc += fill_recursive(map, spaces, numbers, prob, p3, nums, this_space, true, true, depth)
             end
         end
-         #       .. <= rv に収まる確率？ p2: 右側とつながる場合を評価する
+         # p2: 右側とつながる場合を評価する
         if rv # 右側に数字が存在している
             nums = select_nums(nil, rv, numbers)
             p2 = [get_prob(cnt, nums.size, numbers.size) - p3, 0].max * @prob[:p2]
+            #p2 = [get_prob(cnt, nums.size, numbers.size), 0].max * @prob[:p2]
             if p2 > 0
-                log "(#{thid})=== P2(#{lv},#{rv},#{p2}) ==== #{map.join('|')} #{nums}"
+                #log "(#{thid})=== P2(#{lv},#{rv},#{p2}) ==== #{map.join('|')} #{nums}"
                 sc += fill_recursive(map, spaces, numbers, prob, p2, nums, this_space, false, true, depth)
             end
         end
-        # lv <= ..       に収まる確率？ p1: 左側とつながる場合を評価する
+        # p1: 左側とつながる場合を評価する
         if lv
             nums = select_nums(lv, nil, numbers)
             p1 = [get_prob(cnt, nums.size, numbers.size) - p3, 0].max * @prob[:p1]
+            #p1 = [get_prob(cnt, nums.size, numbers.size), 0].max * @prob[:p1]
             if p1 > 0
-                log "(#{thid})=== P1(#{lv},#{rv},#{p1}) ====  #{map.join('|')} #{nums}"
+                #log "(#{thid})=== P1(#{lv},#{rv},#{p1}) ====  #{map.join('|')} #{nums}"
                 sc += fill_recursive(map, spaces, numbers, prob, p1, nums, this_space, true, false, depth)
             end
         end
-        # 収まらない確率              ? p0
+        # p0: 左とも右とも繋がらない場合を評価する
         nums = select_nums(nil, nil, numbers)
-        p0 = [get_prob(cnt, nums.size, numbers.size) - p1 - p2 - p3, 0].max * @prob[:p0] # ? よくわかんな。。
+        p0 = [get_prob(cnt, nums.size, numbers.size) - p1 - p2 -p3, 0].max * @prob[:p0] # ? よくわかんな。。
+        #p0 = [get_prob(cnt, nums.size, numbers.size), 0].max * @prob[:p0] # ? よくわかんな。。
         if p0 > 0
-            log "(#{thid})=== P0(#{lv},#{rv},#{p0}) ====  #{map.join('|')} nums=#{nums.size}#{nums.inspect} numbers=#{numbers.size}#{numbers.inspect}"
+            #log "(#{thid})=== P0(#{lv},#{rv},#{p0}) ====  #{map.join('|')} nums=#{nums.size}#{nums.inspect} numbers=#{numbers.size}#{numbers.inspect}"
             sc += fill_recursive(map, spaces, numbers, prob, p0, nums, this_space, false, false, depth)
         end
         sc
@@ -144,14 +147,16 @@ class Solver
             end
         end
         (lidx).upto(ridx) {|idx| 
-            fmap[idx] = x = use_nums.shift
-            fnumbers.delete_at(fnumbers.find_index(x)) # 数字は重複があるのでdeleteは使えない..
+            if fmap[idx] != 0
+                fmap[idx] = x = use_nums.shift
+                fnumbers.delete_at(fnumbers.find_index(x)) # 数字は重複があるのでdeleteは使えない..
+            end
         }
         fill_spaces(fmap, spaces, fnumbers, prob*this_prob, depth+1)
     end
 
     def get_prob(space_size, num_valid, num_total)
-        log "========================= call prob #{[space_size, num_valid, num_total]} ==========="
+        # log "========================= call prob #{[space_size, num_valid, num_total]} ==========="
         return 0 if num_valid < space_size
         pp = @prob[[space_size, num_valid, num_total]]
         if pp <= 0
@@ -171,15 +176,16 @@ class Solver
         left_idx = nil
         cnt = 0
         (0..19).each do |idx|
-            if map[idx] and cnt > 0 # 空白の次に何か数字があった
-                spaces << [left_idx, left_value, idx, map[idx], cnt]
+            v = map[idx]
+            if v and v > 0 and cnt > 0 # 空白の次に何か数字があった
+                spaces << [left_idx, left_value, idx, v, cnt]
                 cnt = 0
             end
-            if map[idx]
-                left_value = map[idx] 
+            if v and v > 0
+                left_value = v
                 left_idx = idx
             else
-                cnt += 1
+                cnt += 1 if v == nil
             end
         end
         spaces << [left_idx, left_value, nil, nil, cnt] if cnt > 0
@@ -203,19 +209,19 @@ class Streams
     20.times do
       c = cards.pop
       pos = @solver.on_card(c)
-      raise "Invalid position" unless (0..19).cover?(pos)
+      raise "Invalid position" unless (0..19).include?(pos)
       raise "Position already in use" if map[pos]
       map[pos] = c
       puts "Streams" + map.map{|x| sprintf("%02s", x)}.join("|") if $DEBUG
     end
     
     s = score(map)
-    # puts "score: #{s}"
+    puts "EVAL Score: #{s}" if $DEBUG
     s
   end
 
   def eval
-    sum = (0...@num).to_a.map.with_index{ |x, i|
+    sum = (0...@num).to_a.map.each_with_index{ |x, i|
       eval_once(i)
     }.inject(:+)
     sum / @num.to_f
@@ -224,7 +230,6 @@ end
 
 class Trainer
     require "securerandom"
-    require "./thread-pool"
 
     def initialize(data_dir, num_eval, seed, concurrent=1)
         @data_dir = data_dir
@@ -255,8 +260,8 @@ class Trainer
             train_loop(@seed + seed_offset)
             i += 1
             if i % 3 == 0
-                log "SEED Change!"
-                seed_offset += @num_eval/2
+                log "********************** SEED Change! ********************"
+                seed_offset += @num_eval
                 @result_cache = {}
             end
         end
